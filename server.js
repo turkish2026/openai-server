@@ -1,10 +1,12 @@
 const express = require('express');
 const axios = require('axios');
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+app.use(cors());
 
-//const API_KEY = "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"; 
+const PORT = process.env.PORT || 3000;
+const API_KEY = process.env.API_KEY;
 
 // Middleware для обработки JSON
 app.use(express.json());
