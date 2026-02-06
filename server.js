@@ -121,6 +121,49 @@ setInterval(() => {            // Очистка протухших токено
   }
 }, 5 * 60 * 1000);
 
+app.post('/api/tts', async (req, res) => {
+  const { text, token } = req.body;
+
+  if (!text || typeof text !== 'string') {
+    return res.status(400).json({ error: 'No text' });
+  }
+
+  if (!validateToken(token)) {
+    return res.status(403).json({ error: 'Invalid or expired token' });
+  }
+
+  try {
+    const response = await axios.post(
+      'https://api.openai.com/v1/audio/speech',
+      {
+        model: 'gpt-4o-mini-tts',
+        voice: 'alloy',
+        input: text,
+        format: 'mp3'
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        responseType: 'arraybuffer',   // ⬅️ ВАЖНО
+        timeout: 20000
+      }
+    );
+
+    const base64Audio = Buffer.from(response.data).toString('base64');
+
+    res.json({
+      audio: `data:audio/mp3;base64,${base64Audio}`
+    });
+
+  } catch (error) {
+    console.error('TTS error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'TTS failed' });
+  }
+});
+
 app.listen(PORT, () => {                                    // Start
   console.log(`Server running on port ${PORT}`);
 });
+
