@@ -4,7 +4,7 @@ const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const ttsCache = new Map();                    // key → base64 mp3
-const SIGN_SECRET = process.env.SIGN_SECRET || '6202TERCESYM';
+const SIGN_SECRET = process.env.SIGN_SECRET || 'TERC6202ESYM';
 
 const app = express();
 
@@ -201,3 +201,4 @@ app.post('/api/tts', async (req, res) => {
 app.listen(PORT, () => {                                    // Start
   console.log(`Server running on port ${PORT}`);
 });
+
