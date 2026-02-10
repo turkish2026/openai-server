@@ -3,6 +3,8 @@ const axios = require('axios');
 const cors = require('cors');
 const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
+const ttsCache = new Map();                    // key → base64 mp3
+const SIGN_SECRET = process.env.SIGN_SECRET || '6202TERCESYM';
 
 const app = express();
 
@@ -22,8 +24,7 @@ app.use(express.json({ limit: '50kb' }));
 
 app.set('trust proxy', 1);
 
-/* Rate limit для API */
-app.use('/api/', rateLimit({
+app.use('/api/', rateLimit({                   // Rate limit для API 
   windowMs: 60 * 1000,
   max: 30,
   standardHeaders: true,
@@ -52,11 +53,34 @@ function validateToken(token) {
 
 app.get('/health', (_, res) => res.send('ok'));      // Health check
 
+function verifySignedMac(mac, timestamp, signature) {
+  if (!mac || !timestamp || !signature) return false;
+
+                                    // timestamp должен быть свежим (±60 сек)
+  const now = Math.floor(Date.now() / 1000);
+  const ts = parseInt(timestamp, 10);
+  if (Math.abs(now - ts) > 60) return false;
+
+  const expected = crypto
+    .createHash('sha256')
+    .update(mac + timestamp + SIGN_SECRET)
+    .digest('hex');
+
+  return crypto.timingSafeEqual(                     // timing-safe compare
+    Buffer.from(expected),
+    Buffer.from(signature)
+  );
+}
+
 app.post('/checka', (req, res) => {                  // Получение токена
-  const { aaa } = req.body;
+  const { aaa, t, s  } = req.body;
 
   if (!aaa || typeof aaa !== 'string') {
     return res.status(400).json({ error: 'Invalid request' });
+  }
+
+  if (!allowedMacAddresses.includes(aaa)) {
+    return res.status(403).json({ error: 'Unauthorized' });
   }
 
   if (!allowedMacAddresses.includes(aaa)) {
@@ -122,7 +146,7 @@ setInterval(() => {            // Очистка протухших токено
 }, 5 * 60 * 1000);
 
 app.post('/api/tts', async (req, res) => {
-  const { text, token } = req.body;
+  const { text, token, speed = 1.0 } = req.body;
 
   if (!text || typeof text !== 'string') {
     return res.status(400).json({ error: 'No text' });
@@ -132,6 +156,15 @@ app.post('/api/tts', async (req, res) => {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
 
+  const cacheKey = crypto                        // ключ кэша
+    .createHash('sha256')
+    .update(text + '|' + speed)
+    .digest('hex');
+                                      // если уже есть — отдаём сразу
+  if (ttsCache.has(cacheKey)) {      
+    return res.json({ audio: ttsCache.get(cacheKey), cached: true });
+  }
+
   try {
     const response = await axios.post(
       'https://api.openai.com/v1/audio/speech',
@@ -139,23 +172,25 @@ app.post('/api/tts', async (req, res) => {
         model: 'gpt-4o-mini-tts',
         voice: 'alloy',
         input: text,
-        format: 'mp3'
+        format: 'mp3',
+        speed: speed                              // Скорость
       },
       {
         headers: {
           Authorization: `Bearer ${API_KEY}`,
           'Content-Type': 'application/json'
         },
-        responseType: 'arraybuffer',   // ⬅️ ВАЖНО
+        responseType: 'arraybuffer',
         timeout: 20000
       }
     );
 
-    const base64Audio = Buffer.from(response.data).toString('base64');
+    const base64Audio =
+      `data:audio/mp3;base64,${Buffer.from(response.data).toString('base64')}`;
 
-    res.json({
-      audio: `data:audio/mp3;base64,${base64Audio}`
-    });
+    ttsCache.set(cacheKey, base64Audio);         // сохраняем в кэш
+
+    res.json({ audio: base64Audio, cached: false });
 
   } catch (error) {
     console.error('TTS error:', error.response?.data || error.message);
@@ -166,4 +201,3 @@ app.post('/api/tts', async (req, res) => {
 app.listen(PORT, () => {                                    // Start
   console.log(`Server running on port ${PORT}`);
 });
-
